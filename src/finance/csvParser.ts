@@ -1,4 +1,5 @@
 import type {
+  CashTransaction,
   Category,
   CustomerMaster,
   Invoice,
@@ -137,6 +138,31 @@ const SUPPLIER_ALIASES: Record<string, string[]> = {
   paymentTerms: ['payment_terms', 'plazo', 'dias_pago', 'terms'],
 }
 
+const CASH_TRANSACTION_ALIASES: Record<string, string[]> = {
+  id: ['tranid', 'tran_id', 'transactionid', 'transaction_id', 'id', 'noctran'],
+  date: ['date', 'fecha', 'trandate', 'tran_date', 'transactiondate', 'fecha_tran', 'fecha_transaccion', 'docdate'],
+  type: ['trantype', 'tran_type', 'type', 'tipo', 'tipotrans', 'tipo_transaccion', 'doctype', 'tipo_doc'],
+  reference: ['referencenbr', 'reference_nbr', 'referenceno', 'referencia', 'reference', 'docnbr', 'doc_nbr', 'numero', 'no_documento'],
+  branch: ['branch', 'sucursal', 'branchid', 'branch_id', 'cod_sucursal'],
+  branchName: ['branchname', 'branch_name', 'sucursal_nombre', 'nombre_sucursal'],
+  cashAccount: ['cashaccount', 'cash_account', 'cuenta_caja', 'cuenta_bancaria', 'bankaccount', 'bank_account'],
+  description: ['description', 'descripcion', 'memo', 'descr', 'detalle', 'concepto'],
+  customerSupplier: [
+    'bizacctname',
+    'biz_acct_name',
+    'customername',
+    'customer_name',
+    'vendorname',
+    'vendor_name',
+    'cliente_proveedor',
+    'tercero',
+    'beneficiario',
+  ],
+  amount: ['curyamt', 'cury_amt', 'amount', 'monto', 'total', 'importe', 'valor', 'curytrandebitamt', 'curytrancreditamt'],
+  currency: ['cury', 'currency', 'curyid', 'moneda'],
+  status: ['status', 'estado', 'released', 'docstatus'],
+}
+
 function normalize(h: string): string {
   return h
     .trim()
@@ -223,6 +249,7 @@ export type CsvKind =
   | 'warehouses'
   | 'customers'
   | 'suppliers'
+  | 'cashTransactions'
   | 'reference'
 
 function scoreSchema(headers: string[], aliases: Record<string, string[]>): number {
@@ -248,6 +275,7 @@ export function detectCsvKind(text: string): { kind: CsvKind; headers: string[] 
     warehouses: scoreSchema(headers, WAREHOUSE_ALIASES),
     customers: scoreSchema(headers, CUSTOMER_ALIASES),
     suppliers: scoreSchema(headers, SUPPLIER_ALIASES),
+    cashTransactions: scoreSchema(headers, CASH_TRANSACTION_ALIASES),
   }
   // Heuristics: discriminating columns break ties.
   const hasFreight = findColumn(headers, PURCHASE_ALIASES.freightCost) >= 0
@@ -259,6 +287,10 @@ export function detectCsvKind(text: string): { kind: CsvKind; headers: string[] 
   const hasCustomerId = findColumn(headers, CUSTOMER_ALIASES.id) >= 0
   const hasSupplierId = findColumn(headers, SUPPLIER_ALIASES.id) >= 0
   const hasSku = findColumn(headers, PRODUCT_ALIASES.sku) >= 0
+  const hasTranType = findColumn(headers, CASH_TRANSACTION_ALIASES.type) >= 0
+  const hasCashAccount = findColumn(headers, CASH_TRANSACTION_ALIASES.cashAccount) >= 0
+  const hasReferenceNbr = findColumn(headers, CASH_TRANSACTION_ALIASES.reference) >= 0
+  const hasAmount = findColumn(headers, CASH_TRANSACTION_ALIASES.amount) >= 0
 
   if (hasFreight) scores.purchases += 3
   if (hasInvoiceId && hasUnits) scores.invoices += 3
@@ -266,6 +298,11 @@ export function detectCsvKind(text: string): { kind: CsvKind; headers: string[] 
   if (hasWarehouseId || hasLocationId) scores.warehouses += 4
   if (hasCustomerId && !hasSku) scores.customers += 3
   if (hasSupplierId && !hasSku) scores.suppliers += 3
+  if (hasTranType && (hasCashAccount || hasReferenceNbr) && hasAmount) {
+    scores.cashTransactions += 5
+  } else if (hasCashAccount && hasAmount) {
+    scores.cashTransactions += 3
+  }
 
   let best: DiscriminatedKind = 'invoices'
   let bestScore = -1
@@ -330,6 +367,12 @@ export type ParsedReference = {
   warnings: string[]
   detectedColumns: Record<string, string>
 }
+export type ParsedCashTransactions = {
+  kind: 'cashTransactions'
+  cashTransactions: CashTransaction[]
+  warnings: string[]
+  detectedColumns: Record<string, string>
+}
 export type ParsedCsv =
   | ParsedInvoices
   | ParsedPurchases
@@ -338,6 +381,7 @@ export type ParsedCsv =
   | ParsedWarehouses
   | ParsedCustomers
   | ParsedSuppliers
+  | ParsedCashTransactions
   | ParsedReference
 
 function parseInvoices(rows: string[][], headers: string[]): ParsedInvoices {
@@ -538,6 +582,66 @@ function parseSuppliers(rows: string[][], headers: string[]): ParsedSuppliers {
   return { kind: 'suppliers', suppliers, warnings, detectedColumns: detected }
 }
 
+function parseCashTransactions(
+  rows: string[][],
+  headers: string[],
+): ParsedCashTransactions {
+  const { idx, detected } = buildIndex(headers, CASH_TRANSACTION_ALIASES)
+  const warnings: string[] = []
+  if (!('amount' in idx)) warnings.push('Falta columna: monto/amount')
+  if (!('date' in idx)) warnings.push('Falta columna: fecha/date')
+  // Acumatica frequently splits into debit + credit columns; honour both.
+  const debitIdx = headers.findIndex((h) =>
+    ['curytrandebitamt', 'cury_tran_debit_amt', 'debe', 'debit_amt'].includes(h),
+  )
+  const creditIdx = headers.findIndex((h) =>
+    ['curytrancreditamt', 'cury_tran_credit_amt', 'haber', 'credit_amt'].includes(h),
+  )
+
+  const cashTransactions: CashTransaction[] = []
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]
+    if (row.every((c) => !c?.trim())) continue
+    const get = (k: string) => (k in idx ? row[idx[k]] : '')
+    let amount = num(get('amount'))
+    if (debitIdx >= 0 || creditIdx >= 0) {
+      const debit = debitIdx >= 0 ? num(row[debitIdx]) : 0
+      const credit = creditIdx >= 0 ? num(row[creditIdx]) : 0
+      amount = debit - credit
+    }
+    const type = (get('type') || '').trim()
+    // If type implies an outflow, flip sign when amount is positive.
+    const lowerType = type.toLowerCase()
+    const isOutflow = /pay|payment|pago|egreso|withdrawal|cheque/.test(lowerType)
+    const isInflow = /receipt|recib|cobro|deposit|deposito|ingreso/.test(lowerType)
+    if (amount > 0 && isOutflow && !(debitIdx >= 0 || creditIdx >= 0)) {
+      amount = -amount
+    } else if (amount < 0 && isInflow) {
+      amount = -amount
+    }
+    cashTransactions.push({
+      id: get('id') || get('reference') || `CT-${r}`,
+      date: (get('date') || '').trim().slice(0, 10) || new Date().toISOString().slice(0, 10),
+      type: type || 'Tx',
+      reference: get('reference') || '',
+      branch: get('branch') || undefined,
+      branchName: get('branchName') || undefined,
+      cashAccount: get('cashAccount') || undefined,
+      description: get('description') || undefined,
+      customerSupplier: get('customerSupplier') || undefined,
+      amount,
+      currency: get('currency') || undefined,
+      status: get('status') || undefined,
+    })
+  }
+  return {
+    kind: 'cashTransactions',
+    cashTransactions,
+    warnings,
+    detectedColumns: detected,
+  }
+}
+
 function parseReference(
   rows: string[][],
   rawHeaders: string[],
@@ -594,6 +698,8 @@ export function parseAuto(text: string, fileName?: string): ParsedCsv {
       return parseCustomers(rows, headers)
     case 'suppliers':
       return parseSuppliers(rows, headers)
+    case 'cashTransactions':
+      return parseCashTransactions(rows, headers)
     default:
       return parseReference(rows, rawHeaders, fileName)
   }

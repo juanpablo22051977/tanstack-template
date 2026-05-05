@@ -129,6 +129,16 @@ function applyParsed(
       for (const s of parsed.suppliers) map.set(s.id, s)
       return { ...baseDataset, suppliers: [...map.values()] }
     }
+    case 'cashTransactions': {
+      // De-dupe by id+date+amount; otherwise append.
+      const key = (t: { id: string; date: string; amount: number }) =>
+        `${t.id}::${t.date}::${t.amount}`
+      const map = new Map(
+        baseDataset.cashTransactions.map((t) => [key(t), t]),
+      )
+      for (const t of parsed.cashTransactions) map.set(key(t), t)
+      return { ...baseDataset, cashTransactions: [...map.values()] }
+    }
     case 'reference': {
       return {
         ...baseDataset,
@@ -192,6 +202,9 @@ export const dashboardActions = {
           break
         case 'suppliers':
           rowCount = parsed.suppliers.length
+          break
+        case 'cashTransactions':
+          rowCount = parsed.cashTransactions.length
           break
         case 'reference':
           rowCount = parsed.reference.rowCount

@@ -277,6 +277,7 @@ export function buildSampleDataset(): Dataset {
     warehouses: [],
     customers: [],
     suppliers: [],
+    cashTransactions: [],
     references: [],
   }
 }

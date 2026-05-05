@@ -24,6 +24,7 @@ const KIND_LABEL: Record<CsvKind, string> = {
   warehouses: 'Almacenes',
   customers: 'Clientes',
   suppliers: 'Proveedores',
+  cashTransactions: 'Transacciones de caja',
   reference: 'Referencia',
 }
 
@@ -35,6 +36,7 @@ const KIND_STYLE: Record<CsvKind, string> = {
   warehouses: 'bg-violet-500/15 text-violet-200 ring-violet-500/30',
   customers: 'bg-cyan-500/15 text-cyan-200 ring-cyan-500/30',
   suppliers: 'bg-fuchsia-500/15 text-fuchsia-200 ring-fuchsia-500/30',
+  cashTransactions: 'bg-lime-500/15 text-lime-200 ring-lime-500/30',
   reference: 'bg-slate-500/15 text-slate-300 ring-slate-500/30',
 }
 
@@ -194,6 +196,7 @@ function FilesPanel({
       warehouses: 0,
       customers: 0,
       suppliers: 0,
+      cashTransactions: 0,
       reference: 0,
     } as Record<CsvKind, number>,
   )
@@ -205,6 +208,7 @@ function FilesPanel({
     'warehouses',
     'customers',
     'suppliers',
+    'cashTransactions',
     'reference',
   ]
   return (

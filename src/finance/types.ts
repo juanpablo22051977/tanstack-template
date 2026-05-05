@@ -161,6 +161,21 @@ export type ReferenceTable = {
   sample: Record<string, string>[] // up to ~50 rows for preview
 }
 
+export type CashTransaction = {
+  id: string
+  date: string
+  type: string // TranType: e.g. 'Payment', 'Receipt', 'Transfer', 'Cash Sale'
+  reference: string
+  branch?: string
+  branchName?: string
+  cashAccount?: string
+  description?: string
+  customerSupplier?: string
+  amount: number // signed (positive = inflow, negative = outflow)
+  currency?: string
+  status?: string
+}
+
 export type Dataset = {
   products: Product[]
   reps: SalesRep[]
@@ -174,6 +189,7 @@ export type Dataset = {
   warehouses: Warehouse[]
   customers: CustomerMaster[]
   suppliers: SupplierMaster[]
+  cashTransactions: CashTransaction[]
   references: ReferenceTable[]
 }
 
