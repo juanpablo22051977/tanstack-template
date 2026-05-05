@@ -8,6 +8,7 @@ import {
   Globe2,
 } from 'lucide-react'
 import { TopBar } from './components/TopBar'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { ExecutiveOverview } from './sections/ExecutiveOverview'
 import { DrillDown } from './sections/DrillDown'
 import { SupplyChain } from './sections/SupplyChain'
@@ -27,6 +28,14 @@ const NAV: { id: SectionId; label: string; icon: React.ComponentType<{ className
 ]
 
 export function Dashboard() {
+  return (
+    <ErrorBoundary>
+      <DashboardInner />
+    </ErrorBoundary>
+  )
+}
+
+function DashboardInner() {
   const [active, setActive] = useState<SectionId>('overview')
 
   return (
