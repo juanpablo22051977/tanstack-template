@@ -2,8 +2,13 @@ import type {
   CashTransaction,
   Category,
   CustomerMaster,
+  InventoryTransfer,
   Invoice,
+  JournalEntry,
+  LandedCost,
+  PaymentDoc,
   Product,
+  PurchaseInvoice,
   PurchaseOrder,
   ReferenceTable,
   StockSnapshot,
@@ -58,36 +63,97 @@ export function parseCsv(text: string): string[][] {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const INVOICE_ALIASES: Record<string, string[]> = {
-  date: ['date', 'fecha', 'fecha_emision', 'emision', 'fecha_factura'],
-  invoiceId: ['invoice', 'invoice_id', 'factura', 'numero', 'comprobante', 'no_factura', 'nro'],
-  customer: ['customer', 'cliente', 'razon_social', 'nombre_cliente'],
-  zone: ['zone', 'zona', 'ciudad', 'region', 'provincia'],
-  repId: ['rep', 'rep_id', 'vendedor', 'agente', 'cod_vendedor'],
+  date: ['date', 'fecha', 'fecha_emision', 'emision', 'fecha_factura', 'doc_date', 'tran_date'],
+  invoiceId: [
+    'invoice',
+    'invoice_id',
+    'invoice_nbr',
+    'factura',
+    'numero',
+    'comprobante',
+    'no_factura',
+    'nro',
+    'ref_nbr',
+    'doc_nbr',
+  ],
+  customer: [
+    'customer',
+    'customer_id',
+    'customer_name',
+    'cliente',
+    'cliente_id',
+    'razon_social',
+    'nombre_cliente',
+    'biz_acct_name',
+  ],
+  zone: ['zone', 'zona', 'ciudad', 'region', 'provincia', 'branch_id', 'branch'],
+  repId: ['rep', 'rep_id', 'vendedor', 'agente', 'cod_vendedor', 'salespersonid'],
   category: ['category', 'categoria', 'linea', 'familia', 'grupo'],
-  sku: ['sku', 'codigo', 'producto', 'item', 'cod_item'],
-  units: ['units', 'unidades', 'cantidad', 'qty', 'cant'],
-  unitPrice: ['unit_price', 'precio', 'precio_unitario', 'pvp', 'pu'],
-  unitCost: ['unit_cost', 'costo', 'costo_unitario', 'cu'],
-  daysToCollect: ['days_to_collect', 'dias_cobro', 'plazo', 'dias'],
-  paidStatus: ['status', 'estado', 'paid_status', 'cobrado'],
+  sku: ['sku', 'codigo', 'producto', 'item', 'cod_item', 'inventory_id'],
+  units: ['units', 'unidades', 'cantidad', 'qty', 'cant', 'tran_qty'],
+  unitPrice: [
+    'unit_price',
+    'precio',
+    'precio_unitario',
+    'pvp',
+    'pu',
+    'cury_unit_price',
+    'cury_pricelist',
+  ],
+  unitCost: ['unit_cost', 'costo', 'costo_unitario', 'cu', 'cury_unit_cost'],
+  daysToCollect: ['days_to_collect', 'dias_cobro', 'plazo', 'dias', 'terms'],
+  paidStatus: ['status', 'estado', 'paid_status', 'cobrado', 'docstatus', 'released'],
 }
 
 const PURCHASE_ALIASES: Record<string, string[]> = {
-  date: ['date', 'fecha', 'fecha_orden', 'fecha_po'],
-  poId: ['po', 'po_id', 'orden', 'numero_po', 'orden_compra'],
-  supplier: ['supplier', 'proveedor', 'vendor', 'fabricante'],
-  originPort: ['origin', 'puerto', 'origen', 'puerto_origen', 'port'],
+  date: ['date', 'fecha', 'fecha_orden', 'fecha_po', 'doc_date', 'tran_date'],
+  poId: [
+    'po',
+    'po_id',
+    'po_nbr',
+    'orden',
+    'numero_po',
+    'orden_compra',
+    'ref_nbr',
+    'doc_nbr',
+  ],
+  supplier: [
+    'supplier',
+    'supplier_id',
+    'supplier_name',
+    'proveedor',
+    'vendor',
+    'vendor_id',
+    'vendor_name',
+    'fabricante',
+    'biz_acct_name',
+  ],
+  originPort: ['origin', 'puerto', 'origen', 'puerto_origen', 'port', 'origin_port'],
   category: ['category', 'categoria', 'linea', 'familia'],
-  sku: ['sku', 'codigo', 'producto', 'item'],
-  units: ['units', 'unidades', 'cantidad', 'qty'],
-  unitCost: ['unit_cost', 'costo', 'costo_unitario', 'fob'],
-  freightCost: ['freight', 'flete', 'freight_cost', 'costo_flete'],
-  dutiesCost: ['duties', 'aranceles', 'nacionalizacion', 'duties_cost'],
+  sku: ['sku', 'codigo', 'producto', 'item', 'inventory_id'],
+  units: ['units', 'unidades', 'cantidad', 'qty', 'tran_qty', 'order_qty'],
+  unitCost: ['unit_cost', 'costo', 'costo_unitario', 'fob', 'cury_unit_cost'],
+  freightCost: [
+    'freight',
+    'flete',
+    'freight_cost',
+    'costo_flete',
+    'cury_freight_cost',
+    'cury_freight_amt',
+  ],
+  dutiesCost: [
+    'duties',
+    'aranceles',
+    'nacionalizacion',
+    'duties_cost',
+    'cury_duties_cost',
+    'customs_duty',
+  ],
   productionDays: ['production_days', 'dias_produccion'],
   oceanDays: ['ocean_days', 'dias_transito', 'dias_maritimo'],
   customsDays: ['customs_days', 'dias_aduana'],
   inlandDays: ['inland_days', 'dias_inland', 'dias_terrestre'],
-  stage: ['stage', 'etapa', 'estado_orden'],
+  stage: ['stage', 'etapa', 'estado_orden', 'po_status'],
 }
 
 const PRODUCT_ALIASES: Record<string, string[]> = {
@@ -138,6 +204,103 @@ const SUPPLIER_ALIASES: Record<string, string[]> = {
   paymentTerms: ['payment_terms', 'plazo', 'dias_pago', 'terms'],
 }
 
+const JOURNAL_ALIASES: Record<string, string[]> = {
+  id: ['lineid', 'line_id', 'glid', 'gl_id', 'tranid'],
+  date: ['trandate', 'tran_date', 'date', 'fecha', 'docdate', 'fecha_asiento'],
+  module: ['module', 'modulo', 'mod'],
+  batch: ['batchnbr', 'batch_nbr', 'batch', 'lote', 'numero_batch', 'asiento'],
+  branch: ['branchid', 'branch_id', 'branch', 'sucursal'],
+  account: ['accountid', 'account_id', 'account', 'cuenta', 'codcuenta', 'cod_cuenta'],
+  accountDescription: ['accountdescr', 'account_descr', 'account_description', 'cuenta_descr', 'descripcion_cuenta'],
+  description: ['trandesc', 'tran_desc', 'description', 'descripcion', 'memo', 'detalle', 'concepto'],
+  debit: ['curydebitamt', 'cury_debit_amt', 'debitamt', 'debit_amt', 'debit', 'debe', 'monto_debe'],
+  credit: ['curycreditamt', 'cury_credit_amt', 'creditamt', 'credit_amt', 'credit', 'haber', 'monto_haber'],
+  currency: ['curyid', 'cury', 'currency', 'moneda'],
+  status: ['released', 'status', 'estado'],
+}
+
+const LANDED_COST_ALIASES: Record<string, string[]> = {
+  id: ['refnbr', 'ref_nbr', 'reference', 'id', 'docref', 'numero'],
+  date: ['docdate', 'doc_date', 'date', 'fecha', 'fecha_doc'],
+  reference: ['refnbr', 'ref_nbr', 'reference', 'docref', 'no_documento'],
+  poReference: ['ponbr', 'po_nbr', 'po_reference', 'orden_compra', 'po', 'pororef'],
+  vendor: ['vendorid', 'vendor_id', 'vendor', 'proveedor', 'vendor_name'],
+  costCode: [
+    'landedcostcd',
+    'landed_cost_cd',
+    'costcode',
+    'cost_code',
+    'tipo_costo',
+    'concepto_costo',
+    'category',
+  ],
+  description: ['description', 'descr', 'descripcion', 'detalle'],
+  amount: ['curyamt', 'cury_amt', 'curyextamt', 'amount', 'monto', 'total', 'valor'],
+  currency: ['cury', 'curyid', 'currency', 'moneda'],
+  allocationMethod: ['allocationmethod', 'allocation_method', 'metodo_distribucion'],
+}
+
+const PAYMENT_ALIASES: Record<string, string[]> = {
+  id: ['refnbr', 'ref_nbr', 'paymentid', 'payment_id', 'id'],
+  date: ['adjfindate', 'adj_fin_date', 'docdate', 'doc_date', 'date', 'fecha', 'fecha_pago'],
+  type: ['doctype', 'doc_type', 'type', 'tipo', 'tipo_pago'],
+  reference: ['refnbr', 'ref_nbr', 'reference', 'no_documento', 'numero'],
+  vendorOrCustomer: [
+    'vendorid',
+    'vendor_id',
+    'customerid',
+    'customer_id',
+    'bizacctname',
+    'biz_acct_name',
+    'tercero',
+    'beneficiario',
+  ],
+  branch: ['branchid', 'branch_id', 'branch', 'sucursal'],
+  cashAccount: ['cashaccountid', 'cash_account_id', 'cashaccount', 'cuenta_caja', 'banco'],
+  appliedToReference: ['adjdrefnbr', 'applied_to_ref', 'aplicado_a', 'origen_ref'],
+  amount: [
+    'curyorigdocamt',
+    'cury_orig_doc_amt',
+    'curyamt',
+    'cury_amt',
+    'amount',
+    'monto',
+    'valor',
+    'total',
+    'curydocbal',
+  ],
+  currency: ['cury', 'curyid', 'currency', 'moneda'],
+  status: ['status', 'estado', 'released'],
+}
+
+const PURCHASE_INVOICE_ALIASES: Record<string, string[]> = {
+  id: ['refnbr', 'ref_nbr', 'invoiceid', 'invoice_id', 'id'],
+  date: ['docdate', 'doc_date', 'date', 'fecha', 'fecha_factura'],
+  vendor: ['vendorid', 'vendor_id', 'vendor', 'proveedor', 'vendor_name', 'bizacctname', 'biz_acct_name'],
+  vendorRef: ['invoicenbr', 'invoice_nbr', 'vendor_ref', 'vendorref', 'vendor_invoice', 'numero_proveedor'],
+  branch: ['branchid', 'branch_id', 'branch', 'sucursal'],
+  description: ['descr', 'description', 'descripcion', 'memo', 'detalle'],
+  dueDate: ['duedate', 'due_date', 'fecha_vencimiento', 'fecha_vence'],
+  amount: ['curyorigdocamt', 'cury_orig_doc_amt', 'curydocamt', 'amount', 'total', 'monto'],
+  taxAmount: ['curytaxtotal', 'cury_tax_total', 'taxamt', 'tax_amt', 'iva', 'impuesto'],
+  paidAmount: ['curypaidamt', 'cury_paid_amt', 'pagado'],
+  balance: ['curydocbal', 'cury_doc_bal', 'saldo', 'balance'],
+  currency: ['cury', 'curyid', 'currency', 'moneda'],
+  status: ['status', 'estado', 'released', 'docstatus'],
+}
+
+const TRANSFER_ALIASES: Record<string, string[]> = {
+  id: ['refnbr', 'ref_nbr', 'transfernbr', 'transfer_nbr', 'id'],
+  date: ['trandate', 'tran_date', 'date', 'fecha', 'fecha_transferencia'],
+  fromWarehouse: ['fromsiteid', 'from_site_id', 'fromwarehouse', 'from_warehouse', 'origen', 'almacen_origen'],
+  toWarehouse: ['tositeid', 'to_site_id', 'towarehouse', 'to_warehouse', 'destino', 'almacen_destino'],
+  sku: ['inventoryid', 'inventory_id', 'sku', 'item', 'codigo', 'producto'],
+  description: ['descr', 'description', 'descripcion', 'detalle', 'tranddesc'],
+  units: ['qty', 'tranqty', 'tran_qty', 'units', 'unidades', 'cantidad'],
+  status: ['status', 'estado', 'released'],
+  reason: ['reasoncode', 'reason_code', 'motivo', 'razon'],
+}
+
 const CASH_TRANSACTION_ALIASES: Record<string, string[]> = {
   id: ['tranid', 'tran_id', 'transactionid', 'transaction_id', 'id', 'noctran'],
   date: ['date', 'fecha', 'trandate', 'tran_date', 'transactiondate', 'fecha_tran', 'fecha_transaccion', 'docdate'],
@@ -176,9 +339,17 @@ function normalize(h: string): string {
     .replace(/ñ/g, 'n')
 }
 
+// Collapse all word separators so PascalCase, snake_case and kebab-case all
+// match. e.g. "Freight_Cost", "FreightCost", "freight cost" all become
+// "freightcost" for comparison purposes.
+function collapseSeparators(s: string): string {
+  return s.toLowerCase().replace(/[\s_\-./]+/g, '')
+}
+
 function findColumn(headers: string[], aliases: string[]): number {
+  const targets = new Set(aliases.map(collapseSeparators))
   for (let i = 0; i < headers.length; i++) {
-    if (aliases.includes(headers[i])) return i
+    if (targets.has(collapseSeparators(headers[i]))) return i
   }
   return -1
 }
@@ -250,6 +421,11 @@ export type CsvKind =
   | 'customers'
   | 'suppliers'
   | 'cashTransactions'
+  | 'journalEntries'
+  | 'landedCosts'
+  | 'payments'
+  | 'purchaseInvoices'
+  | 'inventoryTransfers'
   | 'reference'
 
 function scoreSchema(headers: string[], aliases: Record<string, string[]>): number {
@@ -276,6 +452,11 @@ export function detectCsvKind(text: string): { kind: CsvKind; headers: string[] 
     customers: scoreSchema(headers, CUSTOMER_ALIASES),
     suppliers: scoreSchema(headers, SUPPLIER_ALIASES),
     cashTransactions: scoreSchema(headers, CASH_TRANSACTION_ALIASES),
+    journalEntries: scoreSchema(headers, JOURNAL_ALIASES),
+    landedCosts: scoreSchema(headers, LANDED_COST_ALIASES),
+    payments: scoreSchema(headers, PAYMENT_ALIASES),
+    purchaseInvoices: scoreSchema(headers, PURCHASE_INVOICE_ALIASES),
+    inventoryTransfers: scoreSchema(headers, TRANSFER_ALIASES),
   }
   // Heuristics: discriminating columns break ties.
   const hasFreight = findColumn(headers, PURCHASE_ALIASES.freightCost) >= 0
@@ -291,6 +472,23 @@ export function detectCsvKind(text: string): { kind: CsvKind; headers: string[] 
   const hasCashAccount = findColumn(headers, CASH_TRANSACTION_ALIASES.cashAccount) >= 0
   const hasReferenceNbr = findColumn(headers, CASH_TRANSACTION_ALIASES.reference) >= 0
   const hasAmount = findColumn(headers, CASH_TRANSACTION_ALIASES.amount) >= 0
+  const hasDebitOrCredit =
+    findColumn(headers, JOURNAL_ALIASES.debit) >= 0 ||
+    findColumn(headers, JOURNAL_ALIASES.credit) >= 0
+  const hasAccount = findColumn(headers, JOURNAL_ALIASES.account) >= 0
+  const hasBatch = findColumn(headers, JOURNAL_ALIASES.batch) >= 0
+  const hasLandedCostCd =
+    headers.includes('landedcostcd') ||
+    headers.includes('landed_cost_cd') ||
+    headers.includes('costcode')
+  const hasFromTo =
+    findColumn(headers, TRANSFER_ALIASES.fromWarehouse) >= 0 &&
+    findColumn(headers, TRANSFER_ALIASES.toWarehouse) >= 0
+  const hasVendor = findColumn(headers, PURCHASE_INVOICE_ALIASES.vendor) >= 0
+  const hasBalance = findColumn(headers, PURCHASE_INVOICE_ALIASES.balance) >= 0
+  const hasDocType = headers.includes('doctype') || headers.includes('doc_type')
+  const hasAdjFinDate =
+    headers.includes('adjfindate') || headers.includes('adj_fin_date')
 
   if (hasFreight) scores.purchases += 3
   if (hasInvoiceId && hasUnits) scores.invoices += 3
@@ -302,6 +500,18 @@ export function detectCsvKind(text: string): { kind: CsvKind; headers: string[] 
     scores.cashTransactions += 5
   } else if (hasCashAccount && hasAmount) {
     scores.cashTransactions += 3
+  }
+  if (hasDebitOrCredit && hasAccount) scores.journalEntries += 6
+  if (hasBatch) scores.journalEntries += 2
+  if (hasLandedCostCd) scores.landedCosts += 6
+  if (hasFromTo) scores.inventoryTransfers += 6
+  if (hasVendor && hasBalance && !hasUnits) scores.purchaseInvoices += 5
+  if (hasVendor && hasInvoiceId && hasAmount && !hasUnits) {
+    scores.purchaseInvoices += 4
+  }
+  if (hasDocType && hasAdjFinDate) scores.payments += 5
+  if (hasDocType && hasAmount && !hasOnHand && !hasUnits && !hasFromTo) {
+    scores.payments += 2
   }
 
   let best: DiscriminatedKind = 'invoices'
@@ -373,6 +583,36 @@ export type ParsedCashTransactions = {
   warnings: string[]
   detectedColumns: Record<string, string>
 }
+export type ParsedJournalEntries = {
+  kind: 'journalEntries'
+  journalEntries: JournalEntry[]
+  warnings: string[]
+  detectedColumns: Record<string, string>
+}
+export type ParsedLandedCosts = {
+  kind: 'landedCosts'
+  landedCosts: LandedCost[]
+  warnings: string[]
+  detectedColumns: Record<string, string>
+}
+export type ParsedPayments = {
+  kind: 'payments'
+  payments: PaymentDoc[]
+  warnings: string[]
+  detectedColumns: Record<string, string>
+}
+export type ParsedPurchaseInvoices = {
+  kind: 'purchaseInvoices'
+  purchaseInvoices: PurchaseInvoice[]
+  warnings: string[]
+  detectedColumns: Record<string, string>
+}
+export type ParsedInventoryTransfers = {
+  kind: 'inventoryTransfers'
+  inventoryTransfers: InventoryTransfer[]
+  warnings: string[]
+  detectedColumns: Record<string, string>
+}
 export type ParsedCsv =
   | ParsedInvoices
   | ParsedPurchases
@@ -382,6 +622,11 @@ export type ParsedCsv =
   | ParsedCustomers
   | ParsedSuppliers
   | ParsedCashTransactions
+  | ParsedJournalEntries
+  | ParsedLandedCosts
+  | ParsedPayments
+  | ParsedPurchaseInvoices
+  | ParsedInventoryTransfers
   | ParsedReference
 
 function parseInvoices(rows: string[][], headers: string[]): ParsedInvoices {
@@ -642,6 +887,159 @@ function parseCashTransactions(
   }
 }
 
+function parseJournalEntries(rows: string[][], headers: string[]): ParsedJournalEntries {
+  const { idx, detected } = buildIndex(headers, JOURNAL_ALIASES)
+  const warnings: string[] = []
+  if (!('account' in idx)) warnings.push('Falta columna: cuenta')
+  if (!('debit' in idx) && !('credit' in idx)) {
+    warnings.push('Falta columna: debe o haber')
+  }
+  const journalEntries: JournalEntry[] = []
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]
+    if (row.every((c) => !c?.trim())) continue
+    const get = (k: string) => (k in idx ? row[idx[k]] : '')
+    journalEntries.push({
+      id: get('id') || `JE-${r}`,
+      date: (get('date') || '').trim().slice(0, 10) || new Date().toISOString().slice(0, 10),
+      module: get('module') || undefined,
+      batch: get('batch') || undefined,
+      branch: get('branch') || undefined,
+      account: get('account') || '',
+      accountDescription: get('accountDescription') || undefined,
+      description: get('description') || undefined,
+      debit: num(get('debit')),
+      credit: num(get('credit')),
+      currency: get('currency') || undefined,
+      status: get('status') || undefined,
+    })
+  }
+  return { kind: 'journalEntries', journalEntries, warnings, detectedColumns: detected }
+}
+
+function parseLandedCosts(rows: string[][], headers: string[]): ParsedLandedCosts {
+  const { idx, detected } = buildIndex(headers, LANDED_COST_ALIASES)
+  const warnings: string[] = []
+  if (!('amount' in idx)) warnings.push('Falta columna: monto')
+  const landedCosts: LandedCost[] = []
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]
+    if (row.every((c) => !c?.trim())) continue
+    const get = (k: string) => (k in idx ? row[idx[k]] : '')
+    landedCosts.push({
+      id: get('id') || `LC-${r}`,
+      date: (get('date') || '').trim().slice(0, 10) || new Date().toISOString().slice(0, 10),
+      reference: get('reference') || '',
+      poReference: get('poReference') || undefined,
+      vendor: get('vendor') || undefined,
+      costCode: get('costCode') || undefined,
+      description: get('description') || undefined,
+      amount: num(get('amount')),
+      currency: get('currency') || undefined,
+      allocationMethod: get('allocationMethod') || undefined,
+    })
+  }
+  return { kind: 'landedCosts', landedCosts, warnings, detectedColumns: detected }
+}
+
+function parsePayments(rows: string[][], headers: string[]): ParsedPayments {
+  const { idx, detected } = buildIndex(headers, PAYMENT_ALIASES)
+  const warnings: string[] = []
+  if (!('amount' in idx)) warnings.push('Falta columna: monto')
+  const payments: PaymentDoc[] = []
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]
+    if (row.every((c) => !c?.trim())) continue
+    const get = (k: string) => (k in idx ? row[idx[k]] : '')
+    let amount = num(get('amount'))
+    const type = (get('type') || '').trim()
+    const lt = type.toLowerCase()
+    const isOutflow = /pay|payment|pago|egreso|ap |voucher|cheque|check/.test(lt)
+    const isInflow = /receipt|recib|cobro|deposit|deposito|ar /.test(lt)
+    if (amount > 0 && isOutflow) amount = -amount
+    else if (amount < 0 && isInflow) amount = -amount
+    payments.push({
+      id: get('id') || get('reference') || `PMT-${r}`,
+      date: (get('date') || '').trim().slice(0, 10) || new Date().toISOString().slice(0, 10),
+      type: type || 'Pago',
+      reference: get('reference') || '',
+      vendorOrCustomer: get('vendorOrCustomer') || undefined,
+      branch: get('branch') || undefined,
+      cashAccount: get('cashAccount') || undefined,
+      appliedToReference: get('appliedToReference') || undefined,
+      amount,
+      currency: get('currency') || undefined,
+      status: get('status') || undefined,
+    })
+  }
+  return { kind: 'payments', payments, warnings, detectedColumns: detected }
+}
+
+function parsePurchaseInvoices(
+  rows: string[][],
+  headers: string[],
+): ParsedPurchaseInvoices {
+  const { idx, detected } = buildIndex(headers, PURCHASE_INVOICE_ALIASES)
+  const warnings: string[] = []
+  if (!('amount' in idx)) warnings.push('Falta columna: monto')
+  const purchaseInvoices: PurchaseInvoice[] = []
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]
+    if (row.every((c) => !c?.trim())) continue
+    const get = (k: string) => (k in idx ? row[idx[k]] : '')
+    purchaseInvoices.push({
+      id: get('id') || `PI-${r}`,
+      date: (get('date') || '').trim().slice(0, 10) || new Date().toISOString().slice(0, 10),
+      vendor: get('vendor') || undefined,
+      vendorRef: get('vendorRef') || undefined,
+      branch: get('branch') || undefined,
+      description: get('description') || undefined,
+      dueDate: (get('dueDate') || '').trim().slice(0, 10) || undefined,
+      amount: num(get('amount')),
+      taxAmount: num(get('taxAmount')) || undefined,
+      paidAmount: num(get('paidAmount')) || undefined,
+      balance: num(get('balance')) || undefined,
+      currency: get('currency') || undefined,
+      status: get('status') || undefined,
+    })
+  }
+  return { kind: 'purchaseInvoices', purchaseInvoices, warnings, detectedColumns: detected }
+}
+
+function parseInventoryTransfers(
+  rows: string[][],
+  headers: string[],
+): ParsedInventoryTransfers {
+  const { idx, detected } = buildIndex(headers, TRANSFER_ALIASES)
+  const warnings: string[] = []
+  if (!('fromWarehouse' in idx) && !('toWarehouse' in idx)) {
+    warnings.push('Falta columna: bodega origen/destino')
+  }
+  const inventoryTransfers: InventoryTransfer[] = []
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]
+    if (row.every((c) => !c?.trim())) continue
+    const get = (k: string) => (k in idx ? row[idx[k]] : '')
+    inventoryTransfers.push({
+      id: get('id') || `TR-${r}`,
+      date: (get('date') || '').trim().slice(0, 10) || new Date().toISOString().slice(0, 10),
+      fromWarehouse: get('fromWarehouse') || undefined,
+      toWarehouse: get('toWarehouse') || undefined,
+      sku: get('sku') || undefined,
+      description: get('description') || undefined,
+      units: num(get('units')),
+      status: get('status') || undefined,
+      reason: get('reason') || undefined,
+    })
+  }
+  return {
+    kind: 'inventoryTransfers',
+    inventoryTransfers,
+    warnings,
+    detectedColumns: detected,
+  }
+}
+
 function parseReference(
   rows: string[][],
   rawHeaders: string[],
@@ -700,6 +1098,16 @@ export function parseAuto(text: string, fileName?: string): ParsedCsv {
       return parseSuppliers(rows, headers)
     case 'cashTransactions':
       return parseCashTransactions(rows, headers)
+    case 'journalEntries':
+      return parseJournalEntries(rows, headers)
+    case 'landedCosts':
+      return parseLandedCosts(rows, headers)
+    case 'payments':
+      return parsePayments(rows, headers)
+    case 'purchaseInvoices':
+      return parsePurchaseInvoices(rows, headers)
+    case 'inventoryTransfers':
+      return parseInventoryTransfers(rows, headers)
     default:
       return parseReference(rows, rawHeaders, fileName)
   }

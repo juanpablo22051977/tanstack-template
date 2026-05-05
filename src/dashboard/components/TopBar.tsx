@@ -17,14 +17,19 @@ import type { CsvKind } from '../../finance/csvParser'
 import type { ImportedFile } from '../store'
 
 const KIND_LABEL: Record<CsvKind, string> = {
-  invoices: 'Facturas',
-  purchases: 'Importaciones',
+  invoices: 'Facturas (Sales)',
+  purchases: 'Órdenes de compra',
   products: 'Productos',
   stock: 'Stock',
   warehouses: 'Almacenes',
   customers: 'Clientes',
   suppliers: 'Proveedores',
   cashTransactions: 'Transacciones de caja',
+  journalEntries: 'Asientos contables',
+  landedCosts: 'Costos de importación',
+  payments: 'Pagos AP/AR',
+  purchaseInvoices: 'Facturas de compra',
+  inventoryTransfers: 'Transferencias',
   reference: 'Referencia',
 }
 
@@ -37,6 +42,11 @@ const KIND_STYLE: Record<CsvKind, string> = {
   customers: 'bg-cyan-500/15 text-cyan-200 ring-cyan-500/30',
   suppliers: 'bg-fuchsia-500/15 text-fuchsia-200 ring-fuchsia-500/30',
   cashTransactions: 'bg-lime-500/15 text-lime-200 ring-lime-500/30',
+  journalEntries: 'bg-yellow-500/15 text-yellow-200 ring-yellow-500/30',
+  landedCosts: 'bg-pink-500/15 text-pink-200 ring-pink-500/30',
+  payments: 'bg-teal-500/15 text-teal-200 ring-teal-500/30',
+  purchaseInvoices: 'bg-rose-500/15 text-rose-200 ring-rose-500/30',
+  inventoryTransfers: 'bg-indigo-500/15 text-indigo-200 ring-indigo-500/30',
   reference: 'bg-slate-500/15 text-slate-300 ring-slate-500/30',
 }
 
@@ -197,11 +207,17 @@ function FilesPanel({
       customers: 0,
       suppliers: 0,
       cashTransactions: 0,
+      journalEntries: 0,
+      landedCosts: 0,
+      payments: 0,
+      purchaseInvoices: 0,
+      inventoryTransfers: 0,
       reference: 0,
     } as Record<CsvKind, number>,
   )
   const totalKinds: CsvKind[] = [
     'invoices',
+    'purchaseInvoices',
     'purchases',
     'products',
     'stock',
@@ -209,6 +225,10 @@ function FilesPanel({
     'customers',
     'suppliers',
     'cashTransactions',
+    'payments',
+    'journalEntries',
+    'landedCosts',
+    'inventoryTransfers',
     'reference',
   ]
   return (

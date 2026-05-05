@@ -130,7 +130,6 @@ function applyParsed(
       return { ...baseDataset, suppliers: [...map.values()] }
     }
     case 'cashTransactions': {
-      // De-dupe by id+date+amount; otherwise append.
       const key = (t: { id: string; date: string; amount: number }) =>
         `${t.id}::${t.date}::${t.amount}`
       const map = new Map(
@@ -138,6 +137,38 @@ function applyParsed(
       )
       for (const t of parsed.cashTransactions) map.set(key(t), t)
       return { ...baseDataset, cashTransactions: [...map.values()] }
+    }
+    case 'journalEntries': {
+      const key = (j: { id: string; date: string; account: string; debit: number; credit: number }) =>
+        `${j.id}::${j.date}::${j.account}::${j.debit}::${j.credit}`
+      const map = new Map(baseDataset.journalEntries.map((j) => [key(j), j]))
+      for (const j of parsed.journalEntries) map.set(key(j), j)
+      return { ...baseDataset, journalEntries: [...map.values()] }
+    }
+    case 'landedCosts': {
+      const key = (l: { id: string; reference: string; costCode?: string }) =>
+        `${l.id}::${l.reference}::${l.costCode || ''}`
+      const map = new Map(baseDataset.landedCosts.map((l) => [key(l), l]))
+      for (const l of parsed.landedCosts) map.set(key(l), l)
+      return { ...baseDataset, landedCosts: [...map.values()] }
+    }
+    case 'payments': {
+      const key = (p: { id: string; date: string; amount: number }) =>
+        `${p.id}::${p.date}::${p.amount}`
+      const map = new Map(baseDataset.payments.map((p) => [key(p), p]))
+      for (const p of parsed.payments) map.set(key(p), p)
+      return { ...baseDataset, payments: [...map.values()] }
+    }
+    case 'purchaseInvoices': {
+      const map = new Map(baseDataset.purchaseInvoices.map((p) => [p.id, p]))
+      for (const p of parsed.purchaseInvoices) map.set(p.id, p)
+      return { ...baseDataset, purchaseInvoices: [...map.values()] }
+    }
+    case 'inventoryTransfers': {
+      const key = (t: { id: string; sku?: string }) => `${t.id}::${t.sku || ''}`
+      const map = new Map(baseDataset.inventoryTransfers.map((t) => [key(t), t]))
+      for (const t of parsed.inventoryTransfers) map.set(key(t), t)
+      return { ...baseDataset, inventoryTransfers: [...map.values()] }
     }
     case 'reference': {
       return {
@@ -205,6 +236,21 @@ export const dashboardActions = {
           break
         case 'cashTransactions':
           rowCount = parsed.cashTransactions.length
+          break
+        case 'journalEntries':
+          rowCount = parsed.journalEntries.length
+          break
+        case 'landedCosts':
+          rowCount = parsed.landedCosts.length
+          break
+        case 'payments':
+          rowCount = parsed.payments.length
+          break
+        case 'purchaseInvoices':
+          rowCount = parsed.purchaseInvoices.length
+          break
+        case 'inventoryTransfers':
+          rowCount = parsed.inventoryTransfers.length
           break
         case 'reference':
           rowCount = parsed.reference.rowCount

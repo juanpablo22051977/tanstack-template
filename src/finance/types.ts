@@ -176,6 +176,76 @@ export type CashTransaction = {
   status?: string
 }
 
+export type JournalEntry = {
+  id: string
+  date: string
+  module?: string
+  batch?: string
+  branch?: string
+  account: string
+  accountDescription?: string
+  description?: string
+  debit: number
+  credit: number
+  currency?: string
+  status?: string
+}
+
+export type LandedCost = {
+  id: string
+  date: string
+  reference: string
+  poReference?: string
+  vendor?: string
+  costCode?: string // 'Freight', 'Duties', 'Insurance', 'Customs'
+  description?: string
+  amount: number
+  currency?: string
+  allocationMethod?: string // 'ByCost', 'ByQuantity', 'ByWeight'
+}
+
+export type PaymentDoc = {
+  id: string
+  date: string
+  type: string // 'AP Payment', 'AR Receipt', 'Refund'…
+  reference: string
+  vendorOrCustomer?: string
+  branch?: string
+  cashAccount?: string
+  appliedToReference?: string
+  amount: number // signed: positive = inflow (AR), negative = outflow (AP)
+  currency?: string
+  status?: string
+}
+
+export type PurchaseInvoice = {
+  id: string
+  date: string
+  vendor?: string
+  vendorRef?: string
+  branch?: string
+  description?: string
+  dueDate?: string
+  amount: number
+  taxAmount?: number
+  paidAmount?: number
+  balance?: number
+  currency?: string
+  status?: string
+}
+
+export type InventoryTransfer = {
+  id: string
+  date: string
+  fromWarehouse?: string
+  toWarehouse?: string
+  sku?: string
+  description?: string
+  units: number
+  status?: string
+  reason?: string
+}
+
 export type Dataset = {
   products: Product[]
   reps: SalesRep[]
@@ -190,6 +260,11 @@ export type Dataset = {
   customers: CustomerMaster[]
   suppliers: SupplierMaster[]
   cashTransactions: CashTransaction[]
+  journalEntries: JournalEntry[]
+  landedCosts: LandedCost[]
+  payments: PaymentDoc[]
+  purchaseInvoices: PurchaseInvoice[]
+  inventoryTransfers: InventoryTransfer[]
   references: ReferenceTable[]
 }
 

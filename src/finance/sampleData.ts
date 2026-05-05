@@ -50,17 +50,19 @@ function mulberry32(seed: number) {
   }
 }
 
-const rand = mulberry32(42)
+type Rand = () => number
 
-function pick<T>(arr: readonly T[]): T {
-  return arr[Math.floor(rand() * arr.length)]
+function makePick(rand: Rand) {
+  return <T,>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)]
 }
 
-function range(min: number, max: number): number {
-  return min + rand() * (max - min)
+function makeRange(rand: Rand) {
+  return (min: number, max: number): number => min + rand() * (max - min)
 }
 
-function buildProducts(): Product[] {
+function buildProducts(rand: Rand): Product[] {
+  const pick = makePick(rand)
+  const range = makeRange(rand)
   const out: Product[] = []
   for (const cat of CATEGORIES) {
     for (let i = 0; i < 8; i++) {
@@ -104,7 +106,9 @@ function buildReps(): SalesRep[] {
   }))
 }
 
-function buildInvoices(products: Product[], reps: SalesRep[]): Invoice[] {
+function buildInvoices(rand: Rand, products: Product[], reps: SalesRep[]): Invoice[] {
+  const pick = makePick(rand)
+  const range = makeRange(rand)
   const out: Invoice[] = []
   // 18 months of invoices, ~40 per month — chunky enough for analytics.
   const start = new Date('2024-11-01').getTime()
@@ -142,7 +146,9 @@ function buildInvoices(products: Product[], reps: SalesRep[]): Invoice[] {
   return out
 }
 
-function buildPurchases(products: Product[]): PurchaseOrder[] {
+function buildPurchases(rand: Rand, products: Product[]): PurchaseOrder[] {
+  const pick = makePick(rand)
+  const range = makeRange(rand)
   const out: PurchaseOrder[] = []
   const start = new Date('2025-09-01').getTime()
   const day = 24 * 60 * 60 * 1000
@@ -179,7 +185,8 @@ function buildPurchases(products: Product[]): PurchaseOrder[] {
   return out
 }
 
-function buildStock(products: Product[], invoices: Invoice[]): StockSnapshot[] {
+function buildStock(rand: Rand, products: Product[], invoices: Invoice[]): StockSnapshot[] {
+  const range = makeRange(rand)
   const demandBySku = new Map<string, number>()
   for (const inv of invoices) {
     demandBySku.set(inv.sku, (demandBySku.get(inv.sku) || 0) + inv.units)
@@ -258,11 +265,14 @@ const DEFAULT_COMPETITORS: Competitor[] = [
 ]
 
 export function buildSampleDataset(): Dataset {
-  const products = buildProducts()
+  // Fresh PRNG on every call so SSR and client always see identical data,
+  // even if the module is re-used across multiple server requests.
+  const rand: Rand = mulberry32(42)
+  const products = buildProducts(rand)
   const reps = buildReps()
-  const invoices = buildInvoices(products, reps)
-  const purchases = buildPurchases(products)
-  const stock = buildStock(products, invoices)
+  const invoices = buildInvoices(rand, products, reps)
+  const purchases = buildPurchases(rand, products)
+  const stock = buildStock(rand, products, invoices)
   const financials = buildFinancials(invoices)
   return {
     products,
@@ -278,6 +288,11 @@ export function buildSampleDataset(): Dataset {
     customers: [],
     suppliers: [],
     cashTransactions: [],
+    journalEntries: [],
+    landedCosts: [],
+    payments: [],
+    purchaseInvoices: [],
+    inventoryTransfers: [],
     references: [],
   }
 }
