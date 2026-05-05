@@ -6,6 +6,7 @@ import {
   Boxes,
   Dices,
   Globe2,
+  Wallet,
 } from 'lucide-react'
 import { TopBar } from './components/TopBar'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -15,11 +16,20 @@ import { SupplyChain } from './sections/SupplyChain'
 import { Wms } from './sections/Wms'
 import { Simulation } from './sections/Simulation'
 import { MacroBenchmark } from './sections/MacroBenchmark'
+import { CashFlow } from './sections/CashFlow'
 
-type SectionId = 'overview' | 'drill' | 'supply' | 'wms' | 'simulation' | 'macro'
+type SectionId =
+  | 'overview'
+  | 'cashflow'
+  | 'drill'
+  | 'supply'
+  | 'wms'
+  | 'simulation'
+  | 'macro'
 
 const NAV: { id: SectionId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'overview', label: 'Executive', icon: LayoutDashboard },
+  { id: 'cashflow', label: 'Cash Flow', icon: Wallet },
   { id: 'drill', label: 'Drill-Down', icon: GitBranch },
   { id: 'supply', label: 'Importaciones', icon: Ship },
   { id: 'wms', label: 'WMS · Stock', icon: Boxes },
@@ -88,6 +98,7 @@ function DashboardInner() {
         <main className="flex-1 px-4 sm:px-6 py-6 max-w-[1400px]">
           <MobileNav active={active} setActive={setActive} />
           {active === 'overview' && <ExecutiveOverview />}
+          {active === 'cashflow' && <CashFlow />}
           {active === 'drill' && <DrillDown />}
           {active === 'supply' && <SupplyChain />}
           {active === 'wms' && <Wms />}

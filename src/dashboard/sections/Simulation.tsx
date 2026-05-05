@@ -4,13 +4,15 @@ import { Glass, SectionHeader } from '../components/Glass'
 import { Histogram } from '../components/Charts'
 import { runMonteCarlo, applySensitivity } from '../../finance/forecast'
 import { computeFinanceSnapshot } from '../../finance/engine'
+import { calibrateFromHistory } from '../../finance/cashFlow'
 import { formatUsd, formatPct, formatPct2 } from '../format'
-import { Sliders, Dices, Activity } from 'lucide-react'
+import { Sliders, Dices, Activity, Wand2 } from 'lucide-react'
 
 export function Simulation() {
   const ds = useDashboard((s) => s.dataset)
   const sensitivity = useDashboard((s) => s.sensitivity)
   const mc = useDashboard((s) => s.monteCarlo)
+  const dateRange = useDashboard((s) => s.dateRange)
 
   const baseSnap = useMemo(() => computeFinanceSnapshot(ds), [ds])
   const adjustedSnap = useMemo(
@@ -18,6 +20,10 @@ export function Simulation() {
     [ds, sensitivity],
   )
   const mcResult = useMemo(() => runMonteCarlo(ds, mc), [ds, mc])
+  const calibration = useMemo(
+    () => calibrateFromHistory(ds, dateRange),
+    [ds, dateRange],
+  )
 
   return (
     <section className="space-y-6">
@@ -191,6 +197,34 @@ export function Simulation() {
             </span>
           }
         />
+        {calibration ? (
+          <div className="mb-4 rounded-xl border border-orange-400/30 bg-orange-500/[0.06] p-3 flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex-1 min-w-[280px]">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-orange-300 font-semibold">
+                <Wand2 className="w-3.5 h-3.5" /> Calibración histórica disponible
+              </div>
+              <div className="mt-1 text-xs text-slate-300">
+                {calibration.observations} meses observados · σ mensual
+                <span className="text-orange-300 font-semibold"> {formatUsd(calibration.monthlySigma)}</span> · CV
+                <span className="text-orange-300 font-semibold"> {(calibration.monthlyCv * 100).toFixed(1)}%</span> · quema mensual prom.
+                <span className="text-orange-300 font-semibold"> {formatUsd(calibration.averageOutflow)}</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                // Translate the historical CV (relative volatility) into the
+                // sales-volatility input. Cap at 60% to keep the simulator
+                // numerically stable.
+                const salesVol = Math.min(0.6, Math.max(0.05, calibration.monthlyCv))
+                dashboardActions.updateMonteCarlo({ salesVol })
+              }}
+              className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-900 bg-orange-300 hover:bg-orange-200 transition"
+            >
+              Aplicar al simulador
+            </button>
+          </div>
+        ) : null}
         <Histogram bins={mcResult.histogram} thresholdValue={0} height={200} />
         <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <Result label="Mediana (P50)" value={formatUsd(mcResult.p50)} accent />

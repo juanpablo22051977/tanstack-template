@@ -216,6 +216,121 @@ function buildStock(rand: Rand, products: Product[], invoices: Invoice[]): Stock
   })
 }
 
+function buildCashTransactions(
+  rand: Rand,
+  invoices: Invoice[],
+  purchases: PurchaseOrder[],
+): import('./types').CashTransaction[] {
+  const range = makeRange(rand)
+  const out: import('./types').CashTransaction[] = []
+  const accounts = ['1101 Banco Pichincha', '1102 Banco Guayaquil', '1103 Caja Chica']
+  const branches: { id: string; name: string }[] = [
+    { id: '01', name: 'Quito' },
+    { id: '02', name: 'Guayaquil' },
+    { id: '03', name: 'Cuenca' },
+  ]
+  let counter = 1
+  // Inflows: ~95% of invoices generate a paid receipt within their cycle.
+  for (const inv of invoices) {
+    if (rand() > 0.95) continue
+    const total = inv.units * inv.unitPrice
+    const dateMs =
+      new Date(inv.date).getTime() + Math.round(range(2, 35)) * 86400000
+    const branch = branches[Math.floor(rand() * branches.length)]
+    out.push({
+      id: `CT-${counter.toString().padStart(5, '0')}`,
+      date: new Date(dateMs).toISOString().slice(0, 10),
+      type: 'AR Receipt',
+      reference: `RCT-${counter.toString().padStart(4, '0')}`,
+      branch: branch.id,
+      branchName: branch.name,
+      cashAccount: accounts[Math.floor(rand() * 2)],
+      description: `Cobro factura ${inv.id}`,
+      customerSupplier: inv.customer,
+      amount: +total.toFixed(2),
+      currency: 'USD',
+      status: 'Released',
+    })
+    counter++
+  }
+  // Outflows: each PO triggers a vendor payment scheduled near arrival.
+  // Apply 30% deposit on order. The 70% saldo only fires for POs that have
+  // already cleared customs — those still in production/ocean/customs only
+  // show the deposit, which is realistic.
+  for (const po of purchases) {
+    const value = po.units * po.unitCost + po.freightCost + po.dutiesCost
+    const branch = branches[Math.floor(rand() * branches.length)]
+    const orderTime = new Date(po.date).getTime()
+    // 30% deposit at order
+    out.push({
+      id: `CT-${counter.toString().padStart(5, '0')}`,
+      date: new Date(orderTime).toISOString().slice(0, 10),
+      type: 'AP Payment',
+      reference: `PMT-${counter.toString().padStart(4, '0')}`,
+      branch: branch.id,
+      branchName: branch.name,
+      cashAccount: accounts[Math.floor(rand() * 2)],
+      description: `Anticipo 30% PO ${po.id}`,
+      customerSupplier: po.supplier,
+      amount: -+(value * 0.3).toFixed(2),
+      currency: 'USD',
+      status: 'Released',
+    })
+    counter++
+    // 70% only when the PO has reached inland or received stage.
+    if (po.stage === 'inland' || po.stage === 'received') {
+      const clearTime =
+        orderTime + (po.productionDays + po.oceanDays + po.customsDays) * 86400000
+      out.push({
+        id: `CT-${counter.toString().padStart(5, '0')}`,
+        date: new Date(clearTime).toISOString().slice(0, 10),
+        type: 'AP Payment',
+        reference: `PMT-${counter.toString().padStart(4, '0')}`,
+        branch: branch.id,
+        branchName: branch.name,
+        cashAccount: accounts[Math.floor(rand() * 2)],
+        description: `Saldo 70% PO ${po.id}`,
+        customerSupplier: po.supplier,
+        amount: -+(value * 0.7).toFixed(2),
+        currency: 'USD',
+        status: 'Released',
+      })
+      counter++
+    }
+  }
+  // Sprinkle operating outflows: payroll, services, taxes (smaller scale to
+  // keep the demo cash-positive).
+  const operatingTypes: { type: string; range: [number, number]; party: string }[] = [
+    { type: 'AP Payment', range: [3500, 6500], party: 'Nómina mensual' },
+    { type: 'AP Payment', range: [220, 700], party: 'Empresa Eléctrica' },
+    { type: 'AP Payment', range: [1100, 2200], party: 'SRI — IVA mensual' },
+    { type: 'AP Payment', range: [180, 420], party: 'Servicios varios' },
+  ]
+  const start = new Date('2025-01-01').getTime()
+  for (let m = 0; m < 16; m++) {
+    for (const op of operatingTypes) {
+      const dateMs = start + (m * 30 + Math.floor(rand() * 25)) * 86400000
+      const branch = branches[Math.floor(rand() * branches.length)]
+      out.push({
+        id: `CT-${counter.toString().padStart(5, '0')}`,
+        date: new Date(dateMs).toISOString().slice(0, 10),
+        type: op.type,
+        reference: `OP-${counter.toString().padStart(4, '0')}`,
+        branch: branch.id,
+        branchName: branch.name,
+        cashAccount: accounts[Math.floor(rand() * 2)],
+        description: op.party,
+        customerSupplier: op.party,
+        amount: -+range(op.range[0], op.range[1]).toFixed(2),
+        currency: 'USD',
+        status: 'Released',
+      })
+      counter++
+    }
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date))
+}
+
 function buildFinancials(invoices: Invoice[]): FinancialStatements {
   const revenue = invoices.reduce((s, i) => s + i.units * i.unitPrice, 0)
   const cogs = invoices.reduce((s, i) => s + i.units * i.unitCost, 0)
@@ -274,6 +389,7 @@ export function buildSampleDataset(): Dataset {
   const purchases = buildPurchases(rand, products)
   const stock = buildStock(rand, products, invoices)
   const financials = buildFinancials(invoices)
+  const cashTransactions = buildCashTransactions(rand, invoices, purchases)
   return {
     products,
     reps,
@@ -287,7 +403,7 @@ export function buildSampleDataset(): Dataset {
     warehouses: [],
     customers: [],
     suppliers: [],
-    cashTransactions: [],
+    cashTransactions,
     journalEntries: [],
     landedCosts: [],
     payments: [],
