@@ -1,9 +1,13 @@
 import type {
   Category,
+  CustomerMaster,
   Invoice,
   Product,
   PurchaseOrder,
+  ReferenceTable,
   StockSnapshot,
+  SupplierMaster,
+  Warehouse,
   Zone,
 } from './types'
 
@@ -103,6 +107,36 @@ const STOCK_ALIASES: Record<string, string[]> = {
   weeklyDemand: ['weekly_demand', 'demanda_semanal', 'demanda'],
 }
 
+const WAREHOUSE_ALIASES: Record<string, string[]> = {
+  warehouseId: ['warehouseid', 'warehouse_id', 'almacen_id', 'almacen', 'cod_almacen', 'bodega', 'bodega_id'],
+  locationId: ['locationid', 'location_id', 'ubicacion', 'ubicacion_id', 'loc_id'],
+  description: ['description', 'descripcion', 'descripcion_2', 'description_2', 'nombre', 'detalle'],
+  active: ['active', 'activo', 'estado', 'enabled'],
+  parentLocationId: [
+    'inlocation_locationid',
+    'parent_location',
+    'parent_locationid',
+    'ubicacion_padre',
+  ],
+}
+
+const CUSTOMER_ALIASES: Record<string, string[]> = {
+  id: ['customerid', 'customer_id', 'cliente_id', 'cod_cliente', 'codigo_cliente', 'no_cliente', 'ruc', 'cedula'],
+  name: ['name', 'nombre', 'razon_social', 'cliente_nombre', 'nombre_cliente', 'customer_name'],
+  zone: ['zone', 'zona', 'ciudad', 'provincia', 'region'],
+  segment: ['segment', 'segmento', 'tipo', 'categoria_cliente'],
+  creditLimit: ['credit_limit', 'limite_credito', 'cupo'],
+  paymentTerms: ['payment_terms', 'plazo', 'dias_credito', 'terms'],
+}
+
+const SUPPLIER_ALIASES: Record<string, string[]> = {
+  id: ['supplierid', 'supplier_id', 'proveedor_id', 'cod_proveedor', 'no_proveedor', 'ruc', 'vendor_id'],
+  name: ['name', 'nombre', 'razon_social', 'proveedor_nombre', 'nombre_proveedor', 'supplier_name', 'vendor_name'],
+  country: ['country', 'pais', 'origen'],
+  category: ['category', 'categoria', 'rubro'],
+  paymentTerms: ['payment_terms', 'plazo', 'dias_pago', 'terms'],
+}
+
 function normalize(h: string): string {
   return h
     .trim()
@@ -181,7 +215,15 @@ const num = (s: string) => parseFloat((s || '0').replace(',', '.')) || 0
 // ─────────────────────────────────────────────────────────────────────────────
 // Type detection: score the header against each known schema.
 // ─────────────────────────────────────────────────────────────────────────────
-export type CsvKind = 'invoices' | 'purchases' | 'products' | 'stock' | 'unknown'
+export type CsvKind =
+  | 'invoices'
+  | 'purchases'
+  | 'products'
+  | 'stock'
+  | 'warehouses'
+  | 'customers'
+  | 'suppliers'
+  | 'reference'
 
 function scoreSchema(headers: string[], aliases: Record<string, string[]>): number {
   let score = 0
@@ -191,35 +233,49 @@ function scoreSchema(headers: string[], aliases: Record<string, string[]>): numb
   return score
 }
 
+type DiscriminatedKind = Exclude<CsvKind, 'reference'>
+
 export function detectCsvKind(text: string): { kind: CsvKind; headers: string[] } {
   const rows = parseCsv(text)
-  if (rows.length < 2) return { kind: 'unknown', headers: [] }
+  if (rows.length < 2) return { kind: 'reference', headers: [] }
   const headers = rows[0].map(normalize)
 
-  const scores: Record<Exclude<CsvKind, 'unknown'>, number> = {
+  const scores: Record<DiscriminatedKind, number> = {
     invoices: scoreSchema(headers, INVOICE_ALIASES),
     purchases: scoreSchema(headers, PURCHASE_ALIASES),
     products: scoreSchema(headers, PRODUCT_ALIASES),
     stock: scoreSchema(headers, STOCK_ALIASES),
+    warehouses: scoreSchema(headers, WAREHOUSE_ALIASES),
+    customers: scoreSchema(headers, CUSTOMER_ALIASES),
+    suppliers: scoreSchema(headers, SUPPLIER_ALIASES),
   }
   // Heuristics: discriminating columns break ties.
   const hasFreight = findColumn(headers, PURCHASE_ALIASES.freightCost) >= 0
   const hasInvoiceId = findColumn(headers, INVOICE_ALIASES.invoiceId) >= 0
   const hasOnHand = findColumn(headers, STOCK_ALIASES.onHand) >= 0
   const hasUnits = findColumn(headers, INVOICE_ALIASES.units) >= 0
+  const hasWarehouseId = findColumn(headers, WAREHOUSE_ALIASES.warehouseId) >= 0
+  const hasLocationId = findColumn(headers, WAREHOUSE_ALIASES.locationId) >= 0
+  const hasCustomerId = findColumn(headers, CUSTOMER_ALIASES.id) >= 0
+  const hasSupplierId = findColumn(headers, SUPPLIER_ALIASES.id) >= 0
+  const hasSku = findColumn(headers, PRODUCT_ALIASES.sku) >= 0
+
   if (hasFreight) scores.purchases += 3
   if (hasInvoiceId && hasUnits) scores.invoices += 3
   if (hasOnHand) scores.stock += 4
+  if (hasWarehouseId || hasLocationId) scores.warehouses += 4
+  if (hasCustomerId && !hasSku) scores.customers += 3
+  if (hasSupplierId && !hasSku) scores.suppliers += 3
 
-  let best: Exclude<CsvKind, 'unknown'> = 'invoices'
+  let best: DiscriminatedKind = 'invoices'
   let bestScore = -1
-  for (const [k, v] of Object.entries(scores) as [Exclude<CsvKind, 'unknown'>, number][]) {
+  for (const [k, v] of Object.entries(scores) as [DiscriminatedKind, number][]) {
     if (v > bestScore) {
       best = k
       bestScore = v
     }
   }
-  if (bestScore < 2) return { kind: 'unknown', headers }
+  if (bestScore < 2) return { kind: 'reference', headers }
   return { kind: best, headers }
 }
 
@@ -250,8 +306,27 @@ export type ParsedStock = {
   warnings: string[]
   detectedColumns: Record<string, string>
 }
-export type ParsedUnknown = {
-  kind: 'unknown'
+export type ParsedWarehouses = {
+  kind: 'warehouses'
+  warehouses: Warehouse[]
+  warnings: string[]
+  detectedColumns: Record<string, string>
+}
+export type ParsedCustomers = {
+  kind: 'customers'
+  customers: CustomerMaster[]
+  warnings: string[]
+  detectedColumns: Record<string, string>
+}
+export type ParsedSuppliers = {
+  kind: 'suppliers'
+  suppliers: SupplierMaster[]
+  warnings: string[]
+  detectedColumns: Record<string, string>
+}
+export type ParsedReference = {
+  kind: 'reference'
+  reference: ReferenceTable
   warnings: string[]
   detectedColumns: Record<string, string>
 }
@@ -260,7 +335,10 @@ export type ParsedCsv =
   | ParsedPurchases
   | ParsedProducts
   | ParsedStock
-  | ParsedUnknown
+  | ParsedWarehouses
+  | ParsedCustomers
+  | ParsedSuppliers
+  | ParsedReference
 
 function parseInvoices(rows: string[][], headers: string[]): ParsedInvoices {
   const { idx, detected } = buildIndex(headers, INVOICE_ALIASES)
@@ -383,12 +461,123 @@ function parseStock(rows: string[][], headers: string[]): ParsedStock {
   return { kind: 'stock', stock, warnings, detectedColumns: detected }
 }
 
-export function parseAuto(text: string): ParsedCsv {
+function parseWarehouses(rows: string[][], headers: string[]): ParsedWarehouses {
+  const { idx, detected } = buildIndex(headers, WAREHOUSE_ALIASES)
+  const warnings: string[] = []
+  if (!('warehouseId' in idx) && !('locationId' in idx)) {
+    warnings.push('Falta columna: warehouse_id o location_id')
+  }
+  const warehouses: Warehouse[] = []
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]
+    if (row.every((c) => !c?.trim())) continue
+    const get = (k: string) => (k in idx ? row[idx[k]] : '')
+    const warehouseId = get('warehouseId') || get('locationId') || `WH-${r}`
+    const locationId = get('locationId') || warehouseId
+    const activeRaw = normalize(get('active'))
+    const active =
+      activeRaw === 'true' ||
+      activeRaw === '1' ||
+      activeRaw === 'si' ||
+      activeRaw === 'yes' ||
+      activeRaw === 'activo' ||
+      activeRaw === ''
+    warehouses.push({
+      warehouseId,
+      locationId,
+      description: get('description') || '',
+      active,
+      parentLocationId: get('parentLocationId') || undefined,
+    })
+  }
+  return { kind: 'warehouses', warehouses, warnings, detectedColumns: detected }
+}
+
+function parseCustomers(rows: string[][], headers: string[]): ParsedCustomers {
+  const { idx, detected } = buildIndex(headers, CUSTOMER_ALIASES)
+  const warnings: string[] = []
+  if (!('id' in idx) && !('name' in idx)) {
+    warnings.push('Falta columna: id o nombre')
+  }
+  const customers: CustomerMaster[] = []
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]
+    if (row.every((c) => !c?.trim())) continue
+    const get = (k: string) => (k in idx ? row[idx[k]] : '')
+    customers.push({
+      id: get('id') || `CUST-${r}`,
+      name: get('name') || `Cliente ${r}`,
+      zone: get('zone') || undefined,
+      segment: get('segment') || undefined,
+      creditLimit: num(get('creditLimit')) || undefined,
+      paymentTerms: num(get('paymentTerms')) || undefined,
+    })
+  }
+  return { kind: 'customers', customers, warnings, detectedColumns: detected }
+}
+
+function parseSuppliers(rows: string[][], headers: string[]): ParsedSuppliers {
+  const { idx, detected } = buildIndex(headers, SUPPLIER_ALIASES)
+  const warnings: string[] = []
+  if (!('id' in idx) && !('name' in idx)) {
+    warnings.push('Falta columna: id o nombre')
+  }
+  const suppliers: SupplierMaster[] = []
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]
+    if (row.every((c) => !c?.trim())) continue
+    const get = (k: string) => (k in idx ? row[idx[k]] : '')
+    suppliers.push({
+      id: get('id') || `SUPP-${r}`,
+      name: get('name') || `Proveedor ${r}`,
+      country: get('country') || undefined,
+      category: get('category') || undefined,
+      paymentTerms: num(get('paymentTerms')) || undefined,
+    })
+  }
+  return { kind: 'suppliers', suppliers, warnings, detectedColumns: detected }
+}
+
+function parseReference(
+  rows: string[][],
+  rawHeaders: string[],
+  fileName?: string,
+): ParsedReference {
+  const SAMPLE_SIZE = 50
+  const sample: Record<string, string>[] = []
+  const dataRows = rows.slice(1).filter((r) => r.some((c) => c?.trim()))
+  for (let r = 0; r < Math.min(SAMPLE_SIZE, dataRows.length); r++) {
+    const row = dataRows[r]
+    const obj: Record<string, string> = {}
+    for (let c = 0; c < rawHeaders.length; c++) {
+      obj[rawHeaders[c] || `col_${c}`] = row[c] || ''
+    }
+    sample.push(obj)
+  }
+  const reference: ReferenceTable = {
+    id: `ref-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name: fileName || 'reference',
+    rowCount: dataRows.length,
+    columns: rawHeaders.filter(Boolean),
+    sample,
+  }
+  return {
+    kind: 'reference',
+    reference,
+    warnings: [
+      `Tabla maestra/de referencia con ${reference.columns.length} columnas: ${reference.columns.slice(0, 5).join(', ')}${reference.columns.length > 5 ? '…' : ''}`,
+    ],
+    detectedColumns: {},
+  }
+}
+
+export function parseAuto(text: string, fileName?: string): ParsedCsv {
   const rows = parseCsv(text)
   if (rows.length < 2) {
-    return { kind: 'unknown', warnings: ['CSV vacío'], detectedColumns: {} }
+    return parseReference(rows, rows[0] || [], fileName)
   }
-  const headers = rows[0].map(normalize)
+  const rawHeaders = rows[0]
+  const headers = rawHeaders.map(normalize)
   const { kind } = detectCsvKind(text)
   switch (kind) {
     case 'invoices':
@@ -399,14 +588,14 @@ export function parseAuto(text: string): ParsedCsv {
       return parseProducts(rows, headers)
     case 'stock':
       return parseStock(rows, headers)
+    case 'warehouses':
+      return parseWarehouses(rows, headers)
+    case 'customers':
+      return parseCustomers(rows, headers)
+    case 'suppliers':
+      return parseSuppliers(rows, headers)
     default:
-      return {
-        kind: 'unknown',
-        warnings: [
-          `No se reconoce el tipo de CSV. Encabezados: ${rows[0].slice(0, 6).join(', ')}…`,
-        ],
-        detectedColumns: {},
-      }
+      return parseReference(rows, rawHeaders, fileName)
   }
 }
 
@@ -422,10 +611,7 @@ export function importInvoicesCsv(text: string) {
   }
   return {
     invoices: [] as Invoice[],
-    warnings:
-      r.kind === 'unknown'
-        ? r.warnings
-        : [`CSV detectado como "${r.kind}", no como "invoices"`],
+    warnings: [`CSV detectado como "${r.kind}", no como "invoices"`],
     detectedColumns: 'detectedColumns' in r ? r.detectedColumns : {},
   }
 }

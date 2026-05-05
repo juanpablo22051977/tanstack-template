@@ -274,5 +274,9 @@ export function buildSampleDataset(): Dataset {
     wacc: DEFAULT_WACC,
     macro: DEFAULT_MACRO,
     competitors: DEFAULT_COMPETITORS,
+    warehouses: [],
+    customers: [],
+    suppliers: [],
+    references: [],
   }
 }

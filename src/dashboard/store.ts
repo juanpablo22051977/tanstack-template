@@ -84,7 +84,7 @@ function rebuildFinancials(ds: Dataset): Dataset {
 // Apply a parsed CSV onto the working dataset, replacing the relevant slice.
 function applyParsed(
   baseDataset: Dataset,
-  freshFromImport: { invoices?: boolean; purchases?: boolean; products?: boolean; stock?: boolean },
+  freshFromImport: { invoices?: boolean; purchases?: boolean },
   parsed: ReturnType<typeof parseAuto>,
 ): Dataset {
   switch (parsed.kind) {
@@ -109,6 +109,31 @@ function applyParsed(
       const map = new Map(baseDataset.stock.map((s) => [s.sku, s]))
       for (const s of parsed.stock) map.set(s.sku, s)
       return { ...baseDataset, stock: [...map.values()] }
+    }
+    case 'warehouses': {
+      const map = new Map(
+        baseDataset.warehouses.map((w) => [`${w.warehouseId}::${w.locationId}`, w]),
+      )
+      for (const w of parsed.warehouses) {
+        map.set(`${w.warehouseId}::${w.locationId}`, w)
+      }
+      return { ...baseDataset, warehouses: [...map.values()] }
+    }
+    case 'customers': {
+      const map = new Map(baseDataset.customers.map((c) => [c.id, c]))
+      for (const c of parsed.customers) map.set(c.id, c)
+      return { ...baseDataset, customers: [...map.values()] }
+    }
+    case 'suppliers': {
+      const map = new Map(baseDataset.suppliers.map((s) => [s.id, s]))
+      for (const s of parsed.suppliers) map.set(s.id, s)
+      return { ...baseDataset, suppliers: [...map.values()] }
+    }
+    case 'reference': {
+      return {
+        ...baseDataset,
+        references: [...baseDataset.references, parsed.reference],
+      }
     }
     default:
       return baseDataset
@@ -139,38 +164,58 @@ export const dashboardActions = {
         }
       : dashboardStore.state.dataset
     let importedFiles = wasSample ? [] : [...dashboardStore.state.importedFiles]
-    const seenKindsThisBatch = { invoices: false, purchases: false, products: false, stock: false }
-    const detectedKindsByName: string[] = []
+    const seenInvoicesThisBatch = { invoices: false, purchases: false }
     const summary: string[] = []
     for (const file of files) {
       const text = await file.text()
-      const parsed = parseAuto(text)
+      const parsed = parseAuto(text, file.name)
       const id = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
       let rowCount = 0
-      if (parsed.kind === 'invoices') rowCount = parsed.invoices.length
-      else if (parsed.kind === 'purchases') rowCount = parsed.purchases.length
-      else if (parsed.kind === 'products') rowCount = parsed.products.length
-      else if (parsed.kind === 'stock') rowCount = parsed.stock.length
+      switch (parsed.kind) {
+        case 'invoices':
+          rowCount = parsed.invoices.length
+          break
+        case 'purchases':
+          rowCount = parsed.purchases.length
+          break
+        case 'products':
+          rowCount = parsed.products.length
+          break
+        case 'stock':
+          rowCount = parsed.stock.length
+          break
+        case 'warehouses':
+          rowCount = parsed.warehouses.length
+          break
+        case 'customers':
+          rowCount = parsed.customers.length
+          break
+        case 'suppliers':
+          rowCount = parsed.suppliers.length
+          break
+        case 'reference':
+          rowCount = parsed.reference.rowCount
+          break
+      }
 
-      // The very first file of each kind in a batch *replaces* prior data
-      // of that kind already in the working dataset; subsequent files of
-      // the same kind in the same batch *append*. Across separate import
-      // calls, all imports append.
-      const isFirstOfKind = parsed.kind !== 'unknown' && !seenKindsThisBatch[parsed.kind]
+      // Within a batch, the first invoices/purchases file *replaces* the
+      // sample data; subsequent files of the same kind append. Across
+      // batches we always append. Master data (products/stock/warehouses/
+      // customers/suppliers) merges by key. Reference tables accumulate.
+      const isReplaceableKind =
+        parsed.kind === 'invoices' || parsed.kind === 'purchases'
+      const isFirstOfKind =
+        isReplaceableKind && !seenInvoicesThisBatch[parsed.kind]
       const freshFromImport = {
         invoices: parsed.kind === 'invoices' ? !isFirstOfKind : false,
         purchases: parsed.kind === 'purchases' ? !isFirstOfKind : false,
-        products: false,
-        stock: false,
       }
-      // If this is a continuation of an existing (non-sample) session,
-      // always append for invoices and purchases.
-      if (!wasSample && (parsed.kind === 'invoices' || parsed.kind === 'purchases')) {
+      if (!wasSample && isReplaceableKind) {
         freshFromImport[parsed.kind] = true
       }
 
       dataset = applyParsed(dataset, freshFromImport, parsed)
-      if (parsed.kind !== 'unknown') seenKindsThisBatch[parsed.kind] = true
+      if (isReplaceableKind) seenInvoicesThisBatch[parsed.kind] = true
 
       importedFiles.push({
         id,
@@ -181,7 +226,6 @@ export const dashboardActions = {
         detectedColumns: 'detectedColumns' in parsed ? parsed.detectedColumns : {},
         importedAt: Date.now(),
       })
-      detectedKindsByName.push(`${file.name}→${parsed.kind}`)
       summary.push(`${file.name}: ${parsed.kind} (${rowCount})`)
     }
     dashboardStore.setState((s) => ({

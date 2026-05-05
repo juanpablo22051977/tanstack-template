@@ -128,6 +128,39 @@ export type Competitor = {
   notes: string
 }
 
+export type Warehouse = {
+  warehouseId: string
+  locationId: string
+  description: string
+  active: boolean
+  parentLocationId?: string
+}
+
+export type CustomerMaster = {
+  id: string
+  name: string
+  zone?: string
+  segment?: string
+  creditLimit?: number
+  paymentTerms?: number
+}
+
+export type SupplierMaster = {
+  id: string
+  name: string
+  country?: string
+  category?: string
+  paymentTerms?: number
+}
+
+export type ReferenceTable = {
+  id: string
+  name: string
+  rowCount: number
+  columns: string[]
+  sample: Record<string, string>[] // up to ~50 rows for preview
+}
+
 export type Dataset = {
   products: Product[]
   reps: SalesRep[]
@@ -138,6 +171,10 @@ export type Dataset = {
   wacc: WaccInputs
   macro: MacroSnapshot
   competitors: Competitor[]
+  warehouses: Warehouse[]
+  customers: CustomerMaster[]
+  suppliers: SupplierMaster[]
+  references: ReferenceTable[]
 }
 
 export type DateRange = {

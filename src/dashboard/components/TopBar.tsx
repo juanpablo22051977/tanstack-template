@@ -21,7 +21,10 @@ const KIND_LABEL: Record<CsvKind, string> = {
   purchases: 'Importaciones',
   products: 'Productos',
   stock: 'Stock',
-  unknown: 'No reconocido',
+  warehouses: 'Almacenes',
+  customers: 'Clientes',
+  suppliers: 'Proveedores',
+  reference: 'Referencia',
 }
 
 const KIND_STYLE: Record<CsvKind, string> = {
@@ -29,7 +32,10 @@ const KIND_STYLE: Record<CsvKind, string> = {
   purchases: 'bg-amber-500/15 text-amber-200 ring-amber-500/30',
   products: 'bg-emerald-500/15 text-emerald-200 ring-emerald-500/30',
   stock: 'bg-sky-500/15 text-sky-200 ring-sky-500/30',
-  unknown: 'bg-rose-500/15 text-rose-200 ring-rose-500/30',
+  warehouses: 'bg-violet-500/15 text-violet-200 ring-violet-500/30',
+  customers: 'bg-cyan-500/15 text-cyan-200 ring-cyan-500/30',
+  suppliers: 'bg-fuchsia-500/15 text-fuchsia-200 ring-fuchsia-500/30',
+  reference: 'bg-slate-500/15 text-slate-300 ring-slate-500/30',
 }
 
 export function TopBar() {
@@ -180,8 +186,27 @@ function FilesPanel({
       acc[f.kind] = (acc[f.kind] || 0) + f.rowCount
       return acc
     },
-    { invoices: 0, purchases: 0, products: 0, stock: 0, unknown: 0 } as Record<CsvKind, number>,
+    {
+      invoices: 0,
+      purchases: 0,
+      products: 0,
+      stock: 0,
+      warehouses: 0,
+      customers: 0,
+      suppliers: 0,
+      reference: 0,
+    } as Record<CsvKind, number>,
   )
+  const totalKinds: CsvKind[] = [
+    'invoices',
+    'purchases',
+    'products',
+    'stock',
+    'warehouses',
+    'customers',
+    'suppliers',
+    'reference',
+  ]
   return (
     <div className="px-6 pb-3">
       <div className="rounded-xl border border-white/10 bg-slate-900/80 backdrop-blur-md p-3">
@@ -190,7 +215,7 @@ function FilesPanel({
             <FileSpreadsheet className="w-3.5 h-3.5" /> Archivos importados
           </div>
           <div className="flex items-center gap-3 text-[11px] text-slate-400">
-            {(['invoices', 'purchases', 'products', 'stock'] as CsvKind[])
+            {totalKinds
               .filter((k) => totals[k])
               .map((k) => (
                 <span key={k} className="tabular-nums">
