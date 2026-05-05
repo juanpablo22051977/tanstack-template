@@ -1,6 +1,7 @@
 import { Store, useStore } from '@tanstack/react-store'
 import type { Dataset, DateRange, DrillPath, WaccInputs } from '../finance/types'
 import { buildSampleDataset } from '../finance/sampleData'
+import { parseAuto, type CsvKind } from '../finance/csvParser'
 
 export type SensitivityState = {
   marginDelta: number
@@ -18,9 +19,20 @@ export type MonteCarloState = {
   customsScaleDays: number
 }
 
+export type ImportedFile = {
+  id: string
+  name: string
+  kind: CsvKind
+  rowCount: number
+  warnings: string[]
+  detectedColumns: Record<string, string>
+  importedAt: number
+}
+
 export type DashboardState = {
   dataset: Dataset
   isSample: boolean
+  importedFiles: ImportedFile[]
   dateRange: DateRange | null
   drill: DrillPath
   sensitivity: SensitivityState
@@ -33,6 +45,7 @@ const initialDataset = buildSampleDataset()
 export const dashboardStore = new Store<DashboardState>({
   dataset: initialDataset,
   isSample: true,
+  importedFiles: [],
   dateRange: null,
   drill: {},
   sensitivity: { marginDelta: 0, fxDelta: 0, freightDelta: 0 },
@@ -48,17 +61,151 @@ export const dashboardStore = new Store<DashboardState>({
   importNotice: null,
 })
 
+// Re-derive financial statements from invoices.
+function rebuildFinancials(ds: Dataset): Dataset {
+  if (ds.invoices.length === 0) return ds
+  const revenue = ds.invoices.reduce((s, i) => s + i.units * i.unitPrice, 0)
+  const cogs = ds.invoices.reduce((s, i) => s + i.units * i.unitCost, 0)
+  return {
+    ...ds,
+    financials: {
+      ...ds.financials,
+      revenue: +revenue.toFixed(2),
+      cogs: +cogs.toFixed(2),
+      opex: +(revenue * 0.18).toFixed(2),
+      depreciation: +(revenue * 0.022).toFixed(2),
+      receivables: +(revenue * 0.14).toFixed(2),
+      inventory: +(cogs * 0.32).toFixed(2),
+      payables: +(cogs * 0.11).toFixed(2),
+    },
+  }
+}
+
+// Apply a parsed CSV onto the working dataset, replacing the relevant slice.
+function applyParsed(
+  baseDataset: Dataset,
+  freshFromImport: { invoices?: boolean; purchases?: boolean; products?: boolean; stock?: boolean },
+  parsed: ReturnType<typeof parseAuto>,
+): Dataset {
+  switch (parsed.kind) {
+    case 'invoices': {
+      const merged = freshFromImport.invoices
+        ? [...baseDataset.invoices, ...parsed.invoices]
+        : parsed.invoices
+      return rebuildFinancials({ ...baseDataset, invoices: merged })
+    }
+    case 'purchases': {
+      const merged = freshFromImport.purchases
+        ? [...baseDataset.purchases, ...parsed.purchases]
+        : parsed.purchases
+      return { ...baseDataset, purchases: merged }
+    }
+    case 'products': {
+      const map = new Map(baseDataset.products.map((p) => [p.sku, p]))
+      for (const p of parsed.products) map.set(p.sku, p)
+      return { ...baseDataset, products: [...map.values()] }
+    }
+    case 'stock': {
+      const map = new Map(baseDataset.stock.map((s) => [s.sku, s]))
+      for (const s of parsed.stock) map.set(s.sku, s)
+      return { ...baseDataset, stock: [...map.values()] }
+    }
+    default:
+      return baseDataset
+  }
+}
+
 export const dashboardActions = {
-  setDataset(dataset: Dataset, isSample = false, notice: string | null = null) {
-    dashboardStore.setState((s) => ({ ...s, dataset, isSample, importNotice: notice }))
-  },
   resetSample() {
     dashboardStore.setState((s) => ({
       ...s,
       dataset: buildSampleDataset(),
       isSample: true,
+      importedFiles: [],
       drill: {},
       importNotice: null,
+    }))
+  },
+  // Import several CSVs in one shot. The first import clears the sample
+  // dataset; subsequent imports merge on top.
+  async importCsvFiles(files: File[]) {
+    if (files.length === 0) return
+    const wasSample = dashboardStore.state.isSample
+    let dataset = wasSample
+      ? {
+          ...dashboardStore.state.dataset,
+          invoices: [],
+          purchases: [],
+        }
+      : dashboardStore.state.dataset
+    let importedFiles = wasSample ? [] : [...dashboardStore.state.importedFiles]
+    const seenKindsThisBatch = { invoices: false, purchases: false, products: false, stock: false }
+    const detectedKindsByName: string[] = []
+    const summary: string[] = []
+    for (const file of files) {
+      const text = await file.text()
+      const parsed = parseAuto(text)
+      const id = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+      let rowCount = 0
+      if (parsed.kind === 'invoices') rowCount = parsed.invoices.length
+      else if (parsed.kind === 'purchases') rowCount = parsed.purchases.length
+      else if (parsed.kind === 'products') rowCount = parsed.products.length
+      else if (parsed.kind === 'stock') rowCount = parsed.stock.length
+
+      // The very first file of each kind in a batch *replaces* prior data
+      // of that kind already in the working dataset; subsequent files of
+      // the same kind in the same batch *append*. Across separate import
+      // calls, all imports append.
+      const isFirstOfKind = parsed.kind !== 'unknown' && !seenKindsThisBatch[parsed.kind]
+      const freshFromImport = {
+        invoices: parsed.kind === 'invoices' ? !isFirstOfKind : false,
+        purchases: parsed.kind === 'purchases' ? !isFirstOfKind : false,
+        products: false,
+        stock: false,
+      }
+      // If this is a continuation of an existing (non-sample) session,
+      // always append for invoices and purchases.
+      if (!wasSample && (parsed.kind === 'invoices' || parsed.kind === 'purchases')) {
+        freshFromImport[parsed.kind] = true
+      }
+
+      dataset = applyParsed(dataset, freshFromImport, parsed)
+      if (parsed.kind !== 'unknown') seenKindsThisBatch[parsed.kind] = true
+
+      importedFiles.push({
+        id,
+        name: file.name,
+        kind: parsed.kind,
+        rowCount,
+        warnings: parsed.warnings,
+        detectedColumns: 'detectedColumns' in parsed ? parsed.detectedColumns : {},
+        importedAt: Date.now(),
+      })
+      detectedKindsByName.push(`${file.name}→${parsed.kind}`)
+      summary.push(`${file.name}: ${parsed.kind} (${rowCount})`)
+    }
+    dashboardStore.setState((s) => ({
+      ...s,
+      dataset,
+      isSample: false,
+      importedFiles,
+      drill: wasSample ? {} : s.drill,
+      importNotice: `Importados ${files.length} archivo(s) — ${summary.join(' · ')}`,
+    }))
+  },
+  removeImportedFile(id: string) {
+    const { importedFiles } = dashboardStore.state
+    const rest = importedFiles.filter((f) => f.id !== id)
+    if (rest.length === 0) {
+      dashboardActions.resetSample()
+      return
+    }
+    dashboardStore.setState((s) => ({
+      ...s,
+      importedFiles: rest,
+      importNotice: `Removido del registro: ${
+        importedFiles.find((f) => f.id === id)?.name || ''
+      }. Recarga los archivos para reconstruir el dataset.`,
     }))
   },
   setDateRange(range: DateRange | null) {
@@ -94,6 +241,9 @@ export const dashboardActions = {
       ...s,
       dataset: { ...s.dataset, wacc: { ...s.dataset.wacc, ...p } },
     }))
+  },
+  clearImportNotice() {
+    dashboardStore.setState((s) => ({ ...s, importNotice: null }))
   },
 }
 
