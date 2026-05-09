@@ -1,13 +1,54 @@
 @import "tailwindcss";
 @import "highlight.js/styles/github-dark.css";
 
+html, body {
+  background-color: #020617; /* slate-950 */
+  color: #e2e8f0; /* slate-200 */
+}
 body {
   @apply m-0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
     "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'tnum';
+}
+
+/* LaTeX-style formula renderer */
+.formula {
+  font-family: 'Cambria Math', 'STIX Two Math', 'Latin Modern Math', 'Times New Roman', serif;
+  font-style: italic;
+  font-size: 1.05em;
+  letter-spacing: 0.01em;
+}
+.formula sub, .formula sup {
+  font-size: 0.72em;
+  font-style: italic;
+}
+.formula .frac {
+  display: inline-flex;
+  flex-direction: column;
+  vertical-align: middle;
+  text-align: center;
+  margin: 0 0.18em;
+  line-height: 1.1;
+}
+.formula .frac .num {
+  border-bottom: 1px solid currentColor;
+  padding: 0 0.25em 0.05em;
+}
+.formula .frac .den {
+  padding: 0.05em 0.25em 0;
+}
+
+/* Range slider thumb polish for orange accent */
+input[type="range"]::-webkit-slider-thumb {
+  background: #F39C12;
+}
+input[type="range"]::-moz-range-thumb {
+  background: #F39C12;
+  border: none;
 }
 
 code {
